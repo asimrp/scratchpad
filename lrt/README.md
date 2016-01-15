@@ -18,17 +18,19 @@ XID.  Each segment along with master maintains a distributed
 transaction log.  The location of a distributed xid, identified by
 page and offset within a page, is determined using local xid.
 
-Distributed transaction log is roughly used like this for visibility:
-For each local xid (xmin/xmax), identify the location in distributed
-transaction log, read 8 bytes from that location and see if they
-represent a valid distributed xid.  If they do, the distributed
-transaction was committed.  If they don't then the local xid was not
-part of a distributed transaction and it's clog status is checked.
+Distributed transaction log is, roughly speaking, used like this for
+visibility: For each local xid (xmin/xmax), identify the location in
+distributed transaction log, read 8 bytes from that location and see
+if they represent a valid distributed xid.  If they do, the
+distributed transaction was committed.  If they don't then the local
+xid was not part of a distributed transaction and it's clog status is
+checked.
 
 ## Objective
 
 The scripts in this repo demonstrate effectiveness of backend-local
-distributed XID cache, that is used on top of shared SLRU page cache.
+distributed XID cache, that is used on top of SLRU (shared memory)
+page cache.
 
 ## How to use the scripts
 
@@ -43,59 +45,57 @@ gpstop -air
 psql -d postgres -c 'show gp_max_local_distributed_cache'
 ```
 
-* Start long running transaction
+* Start long running transaction.
 
 ```
-psql -d postgres -f long_running_xact.sql
+psql -d postgres -f long_running_xact.sql &
 ```
 
 * Generate sql files for single transaction insert and delete
-  workload.  Each insert / delete statement would cause a new
-  distributed transaction log entry to be created.  The count of
-  inserts and deletes will affect total run time of the test.
+  workload.  One page of BLCKSZ=32768 bytes in distributed transaction
+  log accommodates 4096 entries.  Each insert / delete statement would
+  cause a new entry to be created.  To speed up filling of distributed
+  transaction log, we can interleave 4095 selects within each insert /
+  delete.  Every insert / delete would fall on a different page and
+  cause a new slot to be used in SLRU page cache.  The total number of
+  pages to be filled is determined by the counts in the outer for
+  loops below.
 
 ```
-echo "\timing on" > insert_test.sql
-for i in $(seq 1 $[4096 * 16 * 2]);
+echo "set search_path=lrt,public;" > insert_test.sql
+for i in $(seq 1 128);
 do
-    echo "insert into test values ($i, $i);" >> insert_test.sql;
+    # Insert two values, one per segment.
+    echo "insert into test values ($i, $i), ($[i+1], $[i+1]);" >> insert_test.sql;
+    for entry in $(seq 1 4095);
+    do
+        # Consume one xid on each segment.
+        echo "select 1 from gp_dist_random('gp_id');" >> insert_test.sql;
+    done
 done
-echo "\timing on" > delete_test.sql
-for i in $(seq 1 $[4096 * 2]);
+echo "set search_path=lrt,public;" > delete_test.sql
+for i in $(seq 1 128);
 do
-    echo "delete from test where a = $i;" >> delete_test.sql;
+    echo "delete from test where a = $i or a = $[i+1];" >> delete_test.sql;
+    for entry in $(seq 1 4095);
+    do
+        # Consume one xid on each segment.
+        echo "select 1 from gp_dist_random('gp_id');" >> delete_test.sql;
+    done
 done
 ```
 
-* Start a select workload, causing local xid to grow faster.  Consequently,
-  distributed transaction log grows faster on disk.  This helps
-  spread out insert and delete xids across multiple pages of distributed
-  transaction log.
-
-```
-for i in $(seq 1 4096);
-do
-    echo "select 1 from gp_dist_random('gp_id');" >> bump_xid.sql;
-done
-while true;
-do
-    psql -d postgres -f bump_xid.sql > /tmp/bump_xid2.out;
-    sleep 10;
-done &
-```
-
-* Start a workload of singleton inserts, deletes.  Replace "postgres"
-  in the following commands with another database, if necessary.
+* Start a workload of singleton inserts, deletes and a long running
+  transaction that periodically inserts.  Replace "postgres" in the
+  following commands with another database, if necessary.
 
 ```
 sed -ie 's/%db%/postgres/' long_running_insert.sql
 psql -d postgres -f long_running_insert.sql > /tmp/long_running_insert.out &&
- PGOPTIONS='-c search_path=lrt,public' psql -d postgres -f delete_test.sql > /tmp/delete_test.out &
+ psql -d postgres -f delete_test.sql > /tmp/delete_test.out &
 ```
 
 * Wait for the above command to finish.
-
-* Kill the background job running select statements.
 
 * Terminate the long running transaction.
 

@@ -50,14 +50,15 @@ begin
       end if;
       increment := increment + (curr_xmin - prev_xmin);
       if increment > numxacts then
-         -- two inserts assuming a 2 segment cluster
-         insert into lrt.test values (-cnt, 0);
-         insert into lrt.test values (-cnt-1, 0);
+         -- Two inserts assuming a 2 segment cluster.  Use negative
+         -- values to distinguish inserts from the long running
+         -- transaction.
+         insert into lrt.test values (-cnt, 0), (-cnt-1, 0);
          cnt := cnt + 2;
          increment := 0;
       end if;
       prev_xmin := curr_xmin;
-      -- wait 5 seconds for new inserts
+      -- Wait 5 seconds for new inserts.
       perform pg_sleep(5);
    end loop;
 
@@ -68,18 +69,13 @@ $$ language plpgsql;
 -- Start a long running insert session to insert one tuple per
 -- transaction, in background.  Tuples are inserted in order starting
 -- from a=1.
-\! PGDATABASE=%db% PGOPTIONS='-c search_path=lrt,public' psql -f insert_test.sql > /tmp/insert.out &
+\! PGDATABASE=%db% psql -f insert_test.sql > /tmp/insert_test.out &
 
 -- Start long running transaction that inserts periodically ...
 begin;
 \timing on
--- Our objective is to simulate the case when the page containing
--- distributed xid is evicted from SLRU page cache but is present in
--- local cache.  The long running transaction should insert a new
--- tuple after every 8 * xacts-per-page transactions.  xacts-per-page
--- is defined in distributedlog.c to be
---
---    BLCKSZ / sizeof(DistributedLogEntry)
---
+-- 32768 is the number of pages that SLRU page cache can hold.  Insert
+-- one out-of-order xid every 32768 xids.  This will cause a page from
+-- SLRU page cache to be evicted during sequential scan on lrt.test.
 select lrt.insert_tuple(32768);
 end;
