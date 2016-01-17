@@ -1,8 +1,25 @@
 #!/bin/bash
 
+USAGE="start.sh <num_pages> <cache_size>"
+if [ $# -ne 2 ]; then
+    echo $USAGE
+    exit 1
+fi
+
 # Higher this value, large is the scan time difference between with
 # and without local xid cache.
-NUM_PAGES=128
+NUM_PAGES=$1
+if [ $NUM_PAGES -le 0 ]; then
+    echo "invalid value for num_pages"
+    exit 1
+fi
+
+# Local distributed cache size, in number of entries.
+CACHE_SIZE=$2
+if [ $CACHE_SIZE -lt 0 ]; then
+    echo "invalid value for cache_size"
+    exit 1
+fi
 
 # Generates insert_one_page.sql, delete_one_page.sql and
 # seqscan.sql in current directory.
@@ -128,8 +145,9 @@ stop_long_running_read()
 
 generate_data
 
-set_local_cache 0
-echo "*** Local xid cache disabled ***"
+# Enable local xid cache. 1024 is default value in production.
+set_local_cache $CACHE_SIZE
+echo "*** Local xid cache set to $CACHE_SIZE ***"
 setup_transactions
 start_workload $NUM_PAGES
 
@@ -139,18 +157,6 @@ start_workload $NUM_PAGES
 # distributed xid cache is enabled, it should enhance performance by
 # avoiding reading of the same distributed transaction log pages
 # multiple times due to miss in SLRU.
-
-echo "Measuring sequential scan time for lrt.test"
-psql -d postgres -f seqscan.sql > seqscan_no_cache.out
-echo "Scan times recorded in seqscan_no_cache.out"
-
-stop_long_running_read
-
-# Enable local xid cache. 1024 is default value in production.
-set_local_cache 1024
-echo "*** Local xid cache set to 1024 ***"
-setup_transactions
-start_workload $NUM_PAGES
 echo "Measuring sequential scan time for lrt.test"
 psql -d postgres -f seqscan.sql > seqscan_cache.out
 echo "Scan times recorded in seqscan_cache.out"
