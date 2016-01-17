@@ -1,4 +1,4 @@
-# Mixed workload test automation for Greenplum database
+# Mixed workload simulation for Greenplum database
 
 Greenplum database behaves in a peculiar way when bombarded with a
 large number of short DML/DDL transactions in presence of one or more
