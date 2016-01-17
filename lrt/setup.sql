@@ -58,7 +58,7 @@ begin
          increment := 0;
       end if;
       prev_xmin := curr_xmin;
-      -- Wait 5 seconds for new inserts.
+      -- Wait for new inserts.
       perform pg_sleep(sleepsec);
    end loop;
 

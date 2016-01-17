@@ -2,7 +2,7 @@
 
 # Higher this value, large is the scan time difference between with
 # and without local xid cache.
-NUM_PAGES=32
+NUM_PAGES=128
 
 # Generates insert_one_page.sql, delete_one_page.sql and
 # seqscan.sql in current directory.
@@ -100,6 +100,12 @@ start_workload()
 	sed -ie -e "s/(1, 1)/($i, $i)/" -e "s/(2, 2)/($[i+1], $[i+1])/" insert_one_page.sql
 	psql -d postgres -f insert_one_page.sql > /tmp/insert_one_page$i.out
     done
+
+    echo "Waiting for long running inserts to terminate..."
+    wait %2 # first long running insert
+    wait %3 # second long running insert
+    jobs -l # should only report %1 - long running read
+
     echo "Initiating singleton deletes"
     for i in $(seq 3 $num_pages);
     do
@@ -107,12 +113,6 @@ start_workload()
 	sed -ie -e "s/a=1/a=$i/" -e "s/a=2/a=$[i+1]/" delete_one_page.sql
 	psql -d postgres -f delete_one_page.sql > /tmp/delete_one_page$i.out
     done
-
-    echo "Waiting for long running inserts to terminate..."
-    wait %2 # first long running insert
-    wait %3 # second long running insert
-
-    jobs -l # should only report %1 - long running read
 }
 
 stop_long_running_read()
@@ -128,8 +128,8 @@ stop_long_running_read()
 
 generate_data
 
-# Disable local xid cache
 set_local_cache 0
+echo "*** Local xid cache disabled ***"
 setup_transactions
 start_workload $NUM_PAGES
 
@@ -148,6 +148,7 @@ stop_long_running_read
 
 # Enable local xid cache. 1024 is default value in production.
 set_local_cache 1024
+echo "*** Local xid cache set to 1024 ***"
 setup_transactions
 start_workload $NUM_PAGES
 echo "Measuring sequential scan time for lrt.test"
