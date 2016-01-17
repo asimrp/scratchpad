@@ -9,5 +9,5 @@
 
 begin;
 \timing on
-select lrt.insert_tuple(32768, 10);
+select lrt.insert_tuple(32768, 7);
 end;
