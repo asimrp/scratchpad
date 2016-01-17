@@ -158,7 +158,7 @@ start_workload $NUM_PAGES
 # avoiding reading of the same distributed transaction log pages
 # multiple times due to miss in SLRU.
 echo "Measuring sequential scan time for lrt.test"
-psql -d postgres -f seqscan.sql > seqscan_cache.out
-echo "Scan times recorded in seqscan_cache.out"
+psql -d postgres -f seqscan.sql > seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}.out
+echo "Scan times recorded in seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}.out"
 echo "To stop long running read, run the following:"
 echo "    psql -d postgres -c 'insert into lrt.my_tab values (11)'"
