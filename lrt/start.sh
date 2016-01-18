@@ -114,8 +114,8 @@ start_workload()
     for i in $(seq 3 $num_pages);
     do
 	echo "page $i"
-	sed -ie -e "s/(1, 1)/($i, $i)/" -e "s/(2, 2)/($[i+1], $[i+1])/" insert_one_page.sql
-	psql -d postgres -f insert_one_page.sql > /tmp/insert_one_page$i.out
+	sed -e "s/(1, 1)/($i, $i)/" -e "s/(2, 2)/($[i+1], $[i+1])/" insert_one_page.sql > insert_next_page.sql
+	psql -d postgres -f insert_next_page.sql > /tmp/insert_one_page$i.out
     done
 
     echo "Waiting for long running inserts to terminate..."
@@ -127,8 +127,8 @@ start_workload()
     for i in $(seq 3 $num_pages);
     do
 	echo "page $i"
-	sed -ie -e "s/a=1/a=$i/" -e "s/a=2/a=$[i+1]/" delete_one_page.sql
-	psql -d postgres -f delete_one_page.sql > /tmp/delete_one_page$i.out
+	sed -e "s/a=1/a=$i/" -e "s/a=2/a=$[i+1]/" delete_one_page.sql > delete_next_page.sql
+	psql -d postgres -f delete_next_page.sql > /tmp/delete_one_page$i.out
     done
 }
 
@@ -158,7 +158,11 @@ start_workload $NUM_PAGES
 # avoiding reading of the same distributed transaction log pages
 # multiple times due to miss in SLRU.
 echo "Measuring sequential scan time for lrt.test"
-psql -d postgres -f seqscan.sql > seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}.out
-echo "Scan times recorded in seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}.out"
+name=seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}
+psql -d postgres -f seqscan.sql > ${name}.out
+grep Time: ${name}.out | awk '{print $2}' > /tmp/scantimes.txt
+echo "create table ${name} (ms numeric) distributed by (ms);
+ copy ${name} from '/tmp/scantimes.txt';" | psql -d postgres
+echo "Scan times recorded in table ${name} in postgres database."
 echo "To stop long running read, run the following:"
 echo "    psql -d postgres -c 'insert into lrt.my_tab values (11)'"
