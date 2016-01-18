@@ -161,7 +161,8 @@ echo "Measuring sequential scan time for lrt.test"
 name=seqscan_pages${NUM_PAGES}_cache${CACHE_SIZE}
 psql -d postgres -f seqscan.sql > ${name}.out
 grep Time: ${name}.out | awk '{print $2}' > /tmp/scantimes.txt
-echo "create table ${name} (ms numeric) distributed by (ms);
+echo "drop table if exists ${name};
+ create table ${name} (ms numeric) distributed by (ms);
  copy ${name} from '/tmp/scantimes.txt';" | psql -d postgres
 echo "Scan times recorded in table ${name} in postgres database."
 echo "To stop long running read, run the following:"
